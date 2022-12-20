@@ -83,12 +83,18 @@ class UI_MainWindow(object):
             text = "Object Detection",
             icon_path = "icon_restore.png"
         )
+        self.btn_4 = PyPushButton(
+            text = "Semantic Segmentation",
+            icon_path = "icon_restore.png"
+        )
+        
 
         # ADD BTNS TO LAYOUT
         self.left_menu_top_layout.addWidget(self.toggle_button)
         self.left_menu_top_layout.addWidget(self.btn_1)
         self.left_menu_top_layout.addWidget(self.btn_2)
         self.left_menu_top_layout.addWidget(self.btn_3)
+        self.left_menu_top_layout.addWidget(self.btn_4)
 
         # MENU SPACER
         # ///////////////////////////////////////////////////////////////
@@ -154,13 +160,40 @@ class UI_MainWindow(object):
         self.top_spacer = QSpacerItem(20,20, QSizePolicy.Expanding, QSizePolicy.Minimum)
 
         # Right label
-        self.top_label_right = QLabel("| revised by https://github.com/Wanderson-Magalhaes/Curso_PySide6_Em_Portugues")
-        self.top_label_right.setStyleSheet("font: 700 9pt 'Segoe UI'")
-
+        self.save_button = QPushButton()
+        self.save_button.setObjectName(u"save_button")
+        self.save_button.setMinimumSize(QSize(28, 28))
+        self.save_button.setMaximumSize(QSize(28, 28))
+        self.save_button.setCursor(QCursor(Qt.PointingHandCursor))
+        icon = QIcon()
+        icon.addFile(u"gui/images/icons/icon_save.png", QSize(), QIcon.Normal, QIcon.Off)
+        self.save_button.setIcon(icon)
+        self.save_button.setIconSize(QSize(20, 20))
+        
+        self.exit_button = QPushButton()
+        self.exit_button.setObjectName(u"exit_button")
+        self.exit_button.setMinimumSize(QSize(28, 28))
+        self.exit_button.setMaximumSize(QSize(28, 28))
+        self.exit_button.setCursor(QCursor(Qt.PointingHandCursor))
+        icon = QIcon()
+        icon.addFile(u"gui/images/icons/icon_close.png", QSize(), QIcon.Normal, QIcon.Off)
+        self.exit_button.setIcon(icon)
+        self.exit_button.setIconSize(QSize(20, 20))
+        self.exit_button.setStyleSheet = (u"QPushButton {\n"
+"	background-color: #44475a;\n"
+"	border: None;\n"
+"}\n"
+"QPushButton:hover {\n"
+"	background-color: #4f5368;\n"
+"}\n"
+"QPushButton:pressed {\n"
+"	background-color: #282a36;\n"
+"}")
         # Add to layout
         self.top_bar_layout.addWidget(self.top_label_left)
         self.top_bar_layout.addItem(self.top_spacer)
-        self.top_bar_layout.addWidget(self.top_label_right)
+        self.top_bar_layout.addWidget(self.save_button)
+        self.top_bar_layout.addWidget(self.exit_button)
 
         # Application pages
         self.pages = QStackedWidget()

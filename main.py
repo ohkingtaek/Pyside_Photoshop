@@ -17,7 +17,7 @@
 # IMPORT MODULES
 import sys
 import os 
-
+import matplotlib.pyplot as plt
 
 from models.experimental import attempt_load
 from utils.datasets import LoadStreams, LoadImages
@@ -25,6 +25,11 @@ from utils.general import check_img_size, check_requirements, check_imshow, non_
     scale_coords, xyxy2xywh, strip_optimizer, set_logging, increment_path
 from utils.plots import plot_one_box
 from utils.torch_utils import select_device, load_classifier, time_synchronized, TracedModel
+
+from detectron2.detectron2.config import get_cfg
+from detectron2.detectron2.data.detection_utils import read_image
+from detectron2.detectron2.model_zoo import model_zoo
+from detectron2.demo.predictor import VisualizationDemo
 
 # IMPORT QT CORE
 from qt_core import *
@@ -39,15 +44,11 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("Computer Vision Assignment")
         
-        self.menu = self.menuBar()
-        self.menu_file = self.menu.addMenu("파일")
-        exit = QAction("나가기", self, triggered=qApp.quit)
-        self.menu_file.addAction(exit)
-
         # SETUP MAIN WINDOW
         self.ui = UI_MainWindow()
         self.ui.setup_ui(self)
-
+        self.ui.save_button.clicked.connect(self.save)
+        self.ui.exit_button.clicked.connect(sys.exit)
         # Toggle button
         self.ui.toggle_button.clicked.connect(self.toggle_button)
 
@@ -60,10 +61,9 @@ class MainWindow(QMainWindow):
         # Btn settings
         self.ui.btn_3.clicked.connect(self.show_page_3)
         
+        self.ui.btn_4.clicked.connect(self.show_page_4)
+        
         self.ui.settings_btn.clicked.connect(self.show_page_3)
-
-        # Change text
-        # self.ui.ui_pages.btn_change_text.clicked.connect(self.change_text)
 
         # EXIBI A NOSSA APLICAÇÃO
         self.show()
@@ -99,7 +99,18 @@ class MainWindow(QMainWindow):
         self.reset_selection()
         self.ui.pages.setCurrentWidget(self.ui.ui_pages.page_3)
         self.ui.btn_3.set_active(True)
+        
+    # Btn pase gettings
+    def show_page_4(self):
+        self.reset_selection()
+        self.ui.pages.setCurrentWidget(self.ui.ui_pages.page_4)
+        self.ui.btn_4.set_active(True)
 
+    def save(self):
+        import cv2
+        save_image = self.ui.ui_pages.temp
+        cv2.imwrite('result.png', save_image)
+        
     # Toggle button
     def toggle_button(self):
         # Get menu width
