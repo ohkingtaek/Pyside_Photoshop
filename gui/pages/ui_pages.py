@@ -11,20 +11,32 @@
 from qt_core import *
 import cv2
 import os
+import time
+import tqdm
 import random
 import numpy as np
 import torch
+import mediapipe as mp
 import torchvision.transforms as transforms
+
 from models.experimental import attempt_load
 from utils.datasets import letterbox
 from utils.general import check_img_size, non_max_suppression, scale_coords
 from utils.plots import plot_one_box
 from utils.torch_utils import time_synchronized, TracedModel
+from detectron2.detectron2.config import get_cfg
+from detectron2.detectron2.data.detection_utils import read_image
+from detectron2.detectron2.model_zoo import model_zoo
+from detectron2.demo.predictor import VisualizationDemo
+config_file = "../configs/caffe2/e2e_mask_rcnn_R_50_FPN_1x_caffe2.yaml"
+
+
 from gui.pages.zoom_window import ZoomWindow
 from gui.pages.warp_window import WarpWindow
+
 import warnings
 warnings.filterwarnings('ignore')
-device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+device = torch.device("cpu")
 print(f'Using {device} for inference')
 
 efficientnet = torch.hub.load('NVIDIA/DeepLearningExamples:torchhub', 'nvidia_efficientnet_b0', pretrained=True)
@@ -56,7 +68,7 @@ class Ui_application_pages(object):
         # self.frame.setFrameShadow(QFrame.Raised)
 
         self.buttonLayout = QVBoxLayout(self.frame)
-        self.buttonLayout.setSpacing(4)
+        self.buttonLayout.setSpacing(0)
         self.buttonLayout.setObjectName(u"buttonLayout")
         self.buttonLayout.setContentsMargins(0, 0, 0, 0)
         
@@ -166,6 +178,7 @@ class Ui_application_pages(object):
         self.image_sharpning.clicked.connect(self.sharpning)
         self.buttonLayout.addWidget(self.image_sharpning)
 
+        self.qhbox1 = QHBoxLayout()
         self.image_boundary = QPushButton("경계선\n검출")
         self.image_boundary.setObjectName(u"image_boundary")
         self.image_boundary.setMinimumSize(QSize(60, 50))
@@ -185,8 +198,134 @@ class Ui_application_pages(object):
 "	background-color: rgb(255, 0, 127);\n"
 "}")
 
-        self.image_boundary.clicked.connect(self.extract_boundary)
-        self.buttonLayout.addWidget(self.image_boundary)
+        # self.image_boundary.clicked.connect(self.extract_boundary)
+        self.qhbox1.addWidget(self.image_boundary)
+
+        self.bound_dial = QDial()
+        self.bound_dial.setRange(0, 150)
+        self.bound_dial.valueChanged.connect(self.extract_boundary)
+        self.qhbox1.addWidget(self.bound_dial)
+        self.buttonLayout.addLayout(self.qhbox1)
+
+
+        self.qhbox2 = QHBoxLayout()
+        self.rot_image = QPushButton('이미지\n회전')
+        self.rot_image.setObjectName(u'rot_image')
+        self.rot_image.setMinimumSize(QSize(60, 50))
+        self.rot_image.setMaximumSize(QSize(60, 50))
+        self.rot_image.setStyleSheet(u"QPushButton {\n"
+"	background-color: rgb(68, 71, 90);\n"
+"	padding: 8px;\n"
+"	border: 2px solid #c3ccdf;\n"
+"	color: rgb(255, 255, 255);\n"
+"	border-radius: 10px;\n"
+"   font-size:10px;\n"
+"}\n"
+"QPushButton:hover {\n"
+"	background-color: rgb(85, 170, 255);\n"
+"}\n"
+"QPushButton:pressed {\n"
+"	background-color: rgb(255, 0, 127);\n"
+"}")
+        # self.rot_image.clicked.connect(self.rotate)
+        self.qhbox2.addWidget(self.rot_image)
+
+        self.rot_dial = QDial()
+        self.rot_dial.setRange(0, 360)
+        self.rot_dial.valueChanged.connect(self.rotate)
+        self.qhbox2.addWidget(self.rot_dial)
+        self.buttonLayout.addLayout(self.qhbox2)
+
+        self.qhbox3 = QHBoxLayout()
+        self.binary_img = QPushButton('이진화')
+        self.binary_img.setObjectName(u'binary_img')
+        self.binary_img.setMinimumSize(QSize(60, 50))
+        self.binary_img.setMaximumSize(QSize(60, 50))
+        self.binary_img.setStyleSheet(u"QPushButton {\n"
+"	background-color: rgb(68, 71, 90);\n"
+"	padding: 8px;\n"
+"	border: 2px solid #c3ccdf;\n"
+"	color: rgb(255, 255, 255);\n"
+"	border-radius: 10px;\n"
+"   font-size:10px;\n"
+"}\n"
+"QPushButton:hover {\n"
+"	background-color: rgb(85, 170, 255);\n"
+"}\n"
+"QPushButton:pressed {\n"
+"	background-color: rgb(255, 0, 127);\n"
+"}")
+        # self.binary.clicked.connect(self.warping)
+        self.qhbox3.addWidget(self.binary_img)
+
+        self.bin_slider = QDial()
+        self.bin_slider.setRange(0, 255)
+        self.bin_slider.valueChanged.connect(self.binary)
+        self.qhbox3.addWidget(self.bin_slider)
+        self.buttonLayout.addLayout(self.qhbox3)
+
+        self.mosaic_image = QPushButton('모자이크')
+        self.mosaic_image.setObjectName(u'mosaic_image')
+        self.mosaic_image.setMinimumSize(QSize(60, 50))
+        self.mosaic_image.setMaximumSize(QSize(60, 50))
+        self.mosaic_image.setStyleSheet(u"QPushButton {\n"
+"	background-color: rgb(68, 71, 90);\n"
+"	padding: 8px;\n"
+"	border: 2px solid #c3ccdf;\n"
+"	color: rgb(255, 255, 255);\n"
+"	border-radius: 10px;\n"
+"   font-size:10px;\n"
+"}\n"
+"QPushButton:hover {\n"
+"	background-color: rgb(85, 170, 255);\n"
+"}\n"
+"QPushButton:pressed {\n"
+"	background-color: rgb(255, 0, 127);\n"
+"}")
+        self.mosaic_image.clicked.connect(self.face_mosaic)
+        self.buttonLayout.addWidget(self.mosaic_image)
+
+        self.mesh_image = QPushButton('얼굴 윤곽 검출')
+        self.mesh_image.setObjectName(u'mesh_image')
+        self.mesh_image.setMinimumSize(QSize(60, 50))
+        self.mesh_image.setMaximumSize(QSize(60, 50))
+        self.mesh_image.setStyleSheet(u"QPushButton {\n"
+"	background-color: rgb(68, 71, 90);\n"
+"	padding: 8px;\n"
+"	border: 2px solid #c3ccdf;\n"
+"	color: rgb(255, 255, 255);\n"
+"	border-radius: 10px;\n"
+"   font-size:10px;\n"
+"}\n"
+"QPushButton:hover {\n"
+"	background-color: rgb(85, 170, 255);\n"
+"}\n"
+"QPushButton:pressed {\n"
+"	background-color: rgb(255, 0, 127);\n"
+"}")
+        self.mesh_image.clicked.connect(self.face_mesh)
+        self.buttonLayout.addWidget(self.mesh_image)
+
+        self.pose_image = QPushButton('관절 검출')
+        self.pose_image.setObjectName(u'pose_image')
+        self.pose_image.setMinimumSize(QSize(60, 50))
+        self.pose_image.setMaximumSize(QSize(60, 50))
+        self.pose_image.setStyleSheet(u"QPushButton {\n"
+"	background-color: rgb(68, 71, 90);\n"
+"	padding: 8px;\n"
+"	border: 2px solid #c3ccdf;\n"
+"	color: rgb(255, 255, 255);\n"
+"	border-radius: 10px;\n"
+"   font-size:10px;\n"
+"}\n"
+"QPushButton:hover {\n"
+"	background-color: rgb(85, 170, 255);\n"
+"}\n"
+"QPushButton:pressed {\n"
+"	background-color: rgb(255, 0, 127);\n"
+"}")
+        self.pose_image.clicked.connect(self.pose_estimation)
+        self.buttonLayout.addWidget(self.pose_image)
 
         self.warp_image = QPushButton('이미지\n워핑')
         self.warp_image.setObjectName(u'warping_image')
@@ -426,6 +565,80 @@ class Ui_application_pages(object):
         self.sub_layout_3.addWidget(self.change_3)
 
         application_pages.addWidget(self.page_3)
+        
+        #page 4
+        self.page_4 = QWidget()
+        self.page_4.setObjectName(u"page_4")
+        
+        self.main_layout_4 = QVBoxLayout(self.page_4)
+        self.main_layout_4.setObjectName(u"main_layout_4")
+        
+        self.sub_layout_4 = QHBoxLayout()
+        self.main_layout_4.addLayout(self.sub_layout_4)
+        
+        self.frame_4 = QFrame(self.page_4)
+        self.frame_4.setObjectName(u"frame_4")
+        self.frame_4.setMinimumSize(QSize(120, 960))
+        self.frame_4.setMaximumSize(QSize(120, 960))
+        
+        self.buttonLayout_4 = QVBoxLayout(self.frame_4)
+        self.buttonLayout_4.setSpacing(4)
+        self.buttonLayout_4.setObjectName(u"buttonLayout_4")
+        self.buttonLayout_4.setContentsMargins(0, 0, 0, 0)
+        
+        self.image_open_button_4 = QPushButton("이미지\n열기")
+        self.image_open_button_4.setObjectName(u"image_open_button_4")
+        self.image_open_button_4.setMinimumSize(QSize(60, 50))
+        self.image_open_button_4.setMaximumSize(QSize(60, 50))
+        self.image_open_button_4.setStyleSheet(u"QPushButton {\n"
+"	background-color: rgb(68, 71, 90);\n"
+"	padding: 8px;\n"
+"	border: 2px solid #c3ccdf;\n"
+"	color: rgb(255, 255, 255);\n"
+"	border-radius: 10px;\n"
+"   font-size:10px;\n"
+"}\n"
+"QPushButton:hover {\n"
+"	background-color: rgb(85, 170, 255);\n"
+"}\n"
+"QPushButton:pressed {\n"
+"	background-color: rgb(255, 0, 127);\n"
+"}")
+        self.image_open_button_4.clicked.connect(self.show_file_dialog_4)
+        self.buttonLayout_4.addWidget(self.image_open_button_4)
+        
+        self.semantic_segmentation_button = QPushButton("객체분할")
+        self.semantic_segmentation_button.setObjectName(u"semantic_segmentation_button")
+        self.semantic_segmentation_button.setMinimumSize(QSize(60, 50))
+        self.semantic_segmentation_button.setMaximumSize(QSize(60, 50))
+        self.semantic_segmentation_button.setStyleSheet(u"QPushButton {\n"
+"	background-color: rgb(68, 71, 90);\n"
+"	padding: 8px;\n"
+"	border: 2px solid #c3ccdf;\n"
+"	color: rgb(255, 255, 255);\n"
+"	border-radius: 10px;\n"
+"   font-size:10px;\n"
+"}\n"
+"QPushButton:hover {\n"
+"	background-color: rgb(85, 170, 255);\n"
+"}\n"
+"QPushButton:pressed {\n"
+"	background-color: rgb(255, 0, 127);\n"
+"}")
+        self.semantic_segmentation_button.clicked.connect(self.semantic_segmentation)
+        self.buttonLayout_4.addWidget(self.semantic_segmentation_button)
+        
+        self.sub_layout_4.addWidget(self.frame_4)
+        
+        self.origin_4 = QLabel()
+        self.origin_4.setFixedSize(640, 960)
+        self.sub_layout_4.addWidget(self.origin_4)
+        
+        self.change_4 = QLabel()
+        self.change_4.setFixedSize(640, 960)
+        self.sub_layout_4.addWidget(self.change_4)
+
+        application_pages.addWidget(self.page_4)
 
         self.retranslateUi(application_pages)
 
@@ -473,10 +686,26 @@ class Ui_application_pages(object):
         ).rgbSwapped()
         pixmap_3 = QPixmap(image_3)
         self.origin_3.setPixmap(pixmap_3)
+        
+    def show_file_dialog_4(self):
+        file_name_4 = QFileDialog.getOpenFileName(self.page_4, "이미지 열기", "./")
+        self.image_4 = cv2.imread(file_name_4[0])
+        self.segmentation_path = file_name_4[0]
+        self.semantic_path = file_name_4[0]
+        self.image_4 = cv2.resize(self.image_4, (640, 640))
+        h_4, w_4, _ = self.image_4.shape
+        bytes_per_line_4 = 3 * w_4
+        
+        image_4 = QImage(
+            self.image_4.data, w_4, h_4, bytes_per_line_4, QImage.Format_RGB888
+        ).rgbSwapped()
+        pixmap_4 = QPixmap(image_4)
+        self.origin_4.setPixmap(pixmap_4)
     
     #좌우반전
     def flip_image(self):
         flip_image = cv2.flip(self.image, 1)
+        self.temp = flip_image
         h, w, _ = flip_image.shape
         bytes_per_line = 3 * w
         flip_image = QImage(
@@ -488,6 +717,7 @@ class Ui_application_pages(object):
     #정규화
     def normalization_image(self):
         normalization = cv2.normalize(self.image, None, 0, 255, cv2.NORM_MINMAX)
+        self.temp = normalization
         h, w, _ = normalization.shape
         bytes_per_line = 3 * w
         normalization = QImage(
@@ -510,6 +740,7 @@ class Ui_application_pages(object):
                     [0, -1, 0]]
                 )
         sharp_image = cv2.filter2D(sharp_image, -1, kernel)
+        self.temp = sharp_image
         h, w, _ = sharp_image.shape
         bytes_per_line = 3 * w
         sharp_image = QImage(
@@ -517,21 +748,53 @@ class Ui_application_pages(object):
         ).rgbSwapped()
         pixmap = QPixmap(sharp_image)
         self.change.setPixmap(pixmap)
+        self.temp = self.change
+
+    def binary(self, value):
+        bin_image = self.image.copy()
+        bin_image = cv2.cvtColor(bin_image, cv2.COLOR_BGR2GRAY)
+        th, dst = cv2.threshold(bin_image, value, 255, cv2.THRESH_BINARY)
+        self.temp = dst
+        h, w = bin_image.shape
+        
+        bytes_per_line = w
+
+        dst = QImage(
+            dst, w, h, bytes_per_line, QImage.Format_Grayscale8
+        )
+
+        pixmap = QPixmap(dst)
+        self.change.setPixmap(pixmap)
 
     ## 경계선 검출
-    def extract_boundary(self):
-        boundary_image = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
-        median_intensity = np.median(boundary_image)
-        lower_threshold = 100
-        upper_threshold = 200
-        boundary_image = cv2.Canny(boundary_image, lower_threshold, upper_threshold)
+    def extract_boundary(self, value):
+        boundary_image = self.image.copy()
+        boundary_image = cv2.Canny(boundary_image, value, 200)
+        self.temp = boundary_image
         h, w = boundary_image.shape
         bytes_per_line = w
         boundary_image = QImage(
-            boundary_image, w, h, bytes_per_line, QImage.Format_Grayscale8
+            boundary_image.data, w, h, bytes_per_line, QImage.Format_Grayscale8
         ).rgbSwapped()
 
         pixmap = QPixmap(boundary_image)
+        self.change.setPixmap(pixmap)
+
+    ## 이미지 회전
+    def rotate(self, value):
+        rot_image = self.image.copy()
+        h, w = rot_image.shape[:2]
+        cX, cY = w//2, h//2
+
+        M = cv2.getRotationMatrix2D((cX, cY), value, 1.0)
+        dst = cv2.warpAffine(rot_image, M, (w, h))
+        self.temp = dst
+        bytes_per_line = 3 * w
+        dst = QImage(
+            dst, w, h, bytes_per_line, QImage.Format_RGB888
+        ).rgbSwapped()
+
+        pixmap = QPixmap(dst)
         self.change.setPixmap(pixmap)
 
     ## 이미지 워핑
@@ -556,10 +819,11 @@ class Ui_application_pages(object):
         subwindow = ZoomWindow(self.input_path)
         subwindow.show()
 
+    ## 결과 적용
     def apply_result(self):
         res_image = cv2.imread("result.jpg")
         res_image = cv2.resize(res_image, (640, 960))
-
+        self.temp = res_image
         h, w, _ = res_image.shape
         bytes_per_line = 3 * w
 
@@ -571,6 +835,7 @@ class Ui_application_pages(object):
         self.change.setPixmap(pixmap)
         os.remove('result.jpg')
         
+    ## 이미지 분류
     def image_classification(self):
         classification_image = self.image_2.copy()
         classification_image = cv2.cvtColor(classification_image, cv2.COLOR_BGR2RGB)
@@ -588,11 +853,13 @@ class Ui_application_pages(object):
         self.result_2.setText('Top 2 : ' + str(results[0][1][0]))
         self.result_3.setText('Top 3 : ' + str(results[0][2][0]))
 
+    ## 객체 인식
     def object_detection(self):
         detection_image = self.image_3.copy()
         self.batch = detection_image
         self.detect()
-        
+    
+    ## 객체 인식
     def detect(self):
         source = self.batch
         weights = 'yolov7.pt'
@@ -600,29 +867,30 @@ class Ui_application_pages(object):
         stride = int(model.stride.max())
         imgsz = 640
         imgsz = check_img_size(imgsz, s=stride)
-        half = device.type != 'cpu'
+        half = device != 'cpu'
         model = TracedModel(model, device, 640)
-        img0 = cv2.flip(source, 1)
+        img0 = source
+        # img0 = cv2.flip(source, 1)
         img = letterbox(img0, (640, 640), stride=stride)[0]
         img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
         img = np.ascontiguousarray(img)
         names = model.module.names if hasattr(model, 'module') else model.names
         colors = [[random.randint(0, 255) for _ in range(3)] for _ in names]
 
-        if device.type != 'cpu':
+        if device != 'cpu':
             model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
         old_img_w = old_img_h = imgsz
         old_img_b = 1
         
         # for path, img, im0s, vid_cap in dataset:
         img = torch.from_numpy(img).to(device)
-        img = img.half() if half else img.float()  # uint8 to fp16/32
+        img = img.float()  # uint8 to fp16/32
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
         if img.ndimension() == 3:
             img = img.unsqueeze(0)
 
         # Warmup
-        if device.type != 'cpu' and (old_img_b != img.shape[0] or old_img_h != img.shape[2] or old_img_w != img.shape[3]):
+        if device != 'cpu' and (old_img_b != img.shape[0] or old_img_h != img.shape[2] or old_img_w != img.shape[3]):
             old_img_b = img.shape[0]
             old_img_h = img.shape[2]
             old_img_w = img.shape[3]
@@ -652,12 +920,12 @@ class Ui_application_pages(object):
                     n = (det[:, -1] == c).sum()  # detections per class
                     s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "  # add to string
 
-                img0 = cv2.flip(img0, 1)
+                # img0 = cv2.flip(img0, 1)
                 # Write results
                 for *xyxy, conf, cls in reversed(det):
                     label = f'{names[int(cls)]} {conf:.2f}'
                     plot_one_box(xyxy, img0, label=label, color=colors[int(cls)], line_thickness=1)
-
+        self.temp = img0
         h, w, _ = img0.shape
         bytes_per_line = 3 * w
         detect_image = QImage(
@@ -665,6 +933,170 @@ class Ui_application_pages(object):
         ).rgbSwapped()
         pixmap = QPixmap(detect_image)
         self.change_3.setPixmap(pixmap)
+        
+    def semantic_segmentation(self):
+        self.segmentation_image = self.image_4.copy()
+        self.segmentation()
+        
+    def segmentation(self):
+        def setup_cfg():
+                # load config from file and command-line arguments
+            cfg = get_cfg()
+            # To use demo for Panoptic-DeepLab, please uncomment the following two lines.
+            # from detectron2.projects.panoptic_deeplab import add_panoptic_deeplab_config  # noqa
+            # add_panoptic_deeplab_config(cfg)
+            cfg.merge_from_file("detectron2/configs/COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml")
+            cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url("COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml")
+            # Set score_threshold for builtin models
+            cfg.MODEL.RETINANET.SCORE_THRESH_TEST = 0.5
+            cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
+            cfg.MODEL.PANOPTIC_FPN.COMBINE.INSTANCES_CONFIDENCE_THRESH = 0.5
+            cfg.freeze()
+            return cfg
+        cfg = setup_cfg()
+        demo = VisualizationDemo(cfg)
+        # predictions = coco_demo.run_on_opencv_iamge(image)
+        
+        # for path in tqdm.tqdm(args.input):
+            # use PIL, to be consistent with evaluation
+        img = read_image(self.segmentation_path, format="BGR")
+        start_time = time.time()
+        _, predictions = demo.run_on_image(img)
+        predictions = predictions.get_image()
+        predictions = cv2.resize(predictions, (640, 640))
+        h, w, _ = predictions.shape
+        bytes_per_line = 3 * w
+        detect_image = QImage(
+            predictions.data, w, h, bytes_per_line, QImage.Format_RGB888
+        ).rgbSwapped()
+        pixmap = QPixmap(detect_image)
+        self.change_4.setPixmap(pixmap)
+        
                 
     def mouseClickEvent(self, event):
         self.offsets.append((event.x(), event.y()))
+
+    ## 모자이크
+    def face_mosaic(self):
+        cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_alt2.xml")
+        face_rgb_image = self.image.copy()
+        face_gray_image = cv2.cvtColor(face_rgb_image, cv2.COLOR_BGR2GRAY)
+        face_list = cascade.detectMultiScale(face_gray_image, minSize=(30, 30))
+
+        for (x, y, w, h) in face_list:
+            small = cv2.resize(face_rgb_image[y: y + h, x: x + w], None, fx=0.1, fy=0.1, interpolation=cv2.INTER_NEAREST)
+            face_rgb_image[y: y + h, x: x + w] = cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST)
+
+        h, w, _ = face_rgb_image.shape
+        bytes_per_line = w * 3
+
+        face_rgb_image = QImage(
+            face_rgb_image, w, h, bytes_per_line, QImage.Format_RGB888
+        ).rgbSwapped()
+
+        pixmap = QPixmap(face_rgb_image)
+        self.change.setPixmap(pixmap)
+
+    ## 얼굴 윤곽
+    def face_mesh(self):
+        mp_drawing = mp.solutions.drawing_utils
+        mp_drawing_styles = mp.solutions.drawing_styles
+        mp_face_mesh = mp.solutions.face_mesh
+        face_mesh_img = self.image.copy()
+
+        drawing_spec = mp_drawing.DrawingSpec(thickness=1, circle_radius=1)
+        with mp_face_mesh.FaceMesh(
+            static_image_mode=True,
+            max_num_faces=1,
+            refine_landmarks=True,
+            min_detection_confidence=0.5) as face_mesh:
+
+            # Convert the BGR image to RGB before processing.
+            results = face_mesh.process(cv2.cvtColor(face_mesh_img, cv2.COLOR_BGR2RGB))
+
+            annotated_image = face_mesh_img.copy()
+            for idx, face_landmarks in enumerate(results.multi_face_landmarks):
+                print('face_landmarks:', face_landmarks)
+
+                mp_drawing.draw_landmarks(
+                    image=annotated_image,
+                    landmark_list=face_landmarks,
+                    connections=mp_face_mesh.FACEMESH_TESSELATION,
+                    landmark_drawing_spec=None,
+                    connection_drawing_spec=mp_drawing_styles
+                    .get_default_face_mesh_tesselation_style())
+                    
+                mp_drawing.draw_landmarks(
+                    image=annotated_image,
+                    landmark_list=face_landmarks,
+                    connections=mp_face_mesh.FACEMESH_CONTOURS,
+                    landmark_drawing_spec=None,
+                    connection_drawing_spec=mp_drawing_styles
+                    .get_default_face_mesh_contours_style())
+
+                mp_drawing.draw_landmarks(
+                    image=annotated_image,
+                    landmark_list=face_landmarks,
+                    connections=mp_face_mesh.FACEMESH_IRISES,
+                    landmark_drawing_spec=None,
+                    connection_drawing_spec=mp_drawing_styles
+                    .get_default_face_mesh_iris_connections_style())
+        
+        h, w, _ = annotated_image.shape
+        bytes_per_line = w * 3
+
+        annotated_image = QImage(
+            annotated_image, w, h, bytes_per_line, QImage.Format_RGB888
+        ).rgbSwapped()
+
+        pixmap = QPixmap(annotated_image)
+        self.change.setPixmap(pixmap)
+
+    ## 관절 추정
+    def pose_estimation(self):
+        mp_drawing = mp.solutions.drawing_utils
+        mp_drawing_styles = mp.solutions.drawing_styles
+        mp_pose = mp.solutions.pose
+        pose_img = self.image.copy()
+        
+        BG_COLOR = (192, 192, 192) # gray
+        with mp_pose.Pose(
+            static_image_mode=True,
+            model_complexity=2,
+            enable_segmentation=True,
+            min_detection_confidence=0.5) as pose:
+
+            image_height, image_width, _ = pose_img.shape
+            # Convert the BGR image to RGB before processing.
+            results = pose.process(cv2.cvtColor(pose_img, cv2.COLOR_BGR2RGB))
+
+            print(
+                f'Nose coordinates: ('
+                f'{results.pose_landmarks.landmark[mp_pose.PoseLandmark.NOSE].x * image_width}, '
+                f'{results.pose_landmarks.landmark[mp_pose.PoseLandmark.NOSE].y * image_height})'
+            )
+
+            annotated_image = pose_img.copy()
+            # Draw segmentation on the image.
+            # To improve segmentation around boundaries, consider applying a joint
+            # bilateral filter to "results.segmentation_mask" with "image".
+            condition = np.stack((results.segmentation_mask,) * 3, axis=-1) > 0.1
+            bg_image = np.zeros(pose_img.shape, dtype=np.uint8)
+            bg_image[:] = BG_COLOR
+            annotated_image = np.where(condition, annotated_image, bg_image)
+            # Draw pose landmarks on the image.
+            mp_drawing.draw_landmarks(
+                annotated_image,
+                results.pose_landmarks,
+                mp_pose.POSE_CONNECTIONS,
+                landmark_drawing_spec=mp_drawing_styles.get_default_pose_landmarks_style())
+            
+            h, w, _ = annotated_image.shape
+            bytes_per_line = w * 3
+
+            annotated_image = QImage(
+                annotated_image, w, h, bytes_per_line, QImage.Format_RGB888
+            ).rgbSwapped()
+
+            pixmap = QPixmap(annotated_image)
+            self.change.setPixmap(pixmap)
