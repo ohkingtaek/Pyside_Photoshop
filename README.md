@@ -1,6 +1,6 @@
 # Pyside_Photoshop
 
-### Projects : PySide PhotoShop Program (Computer Vision2 Assignments)
+### Projects : PySide PhotoShop Program (Computer Vision I Assignments)
 - Tech Stack
   - [Python](https://www.python.org)
   - [PySide](https://wiki.qt.io/PySide/ko)
